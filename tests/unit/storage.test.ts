@@ -211,23 +211,50 @@ describe("storage — unified localStorage (Store A, Store B, DevicePrefs)", () 
   });
 
   it("degrades cleanly to memory fallback when localStorage throws QuotaExceededError", () => {
-    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
-      throw new DOMException("QuotaExceededError", "QuotaExceededError");
-    });
-    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
-      throw new DOMException("SecurityError", "SecurityError");
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const throwingStorage: Storage = {
+      length: 0,
+      clear() {
+        throw new DOMException("SecurityError", "SecurityError");
+      },
+      getItem() {
+        throw new DOMException("SecurityError", "SecurityError");
+      },
+      key() {
+        return null;
+      },
+      removeItem() {
+        throw new DOMException("SecurityError", "SecurityError");
+      },
+      setItem() {
+        throw new DOMException("QuotaExceededError", "QuotaExceededError");
+      },
+    };
+
+    Object.defineProperty(window, "localStorage", {
+      value: throwingStorage,
+      configurable: true,
+      writable: true,
     });
 
-    const session = completedSession();
-    const ok = saveActiveSession(session);
-    expect(ok).toBe(false);
-    expect(isStorageAvailable()).toBe(false);
-    expect(loadActiveSession(session.updatedAtMs + 1000)?.evaluationId).toBe(
-      session.evaluationId,
-    );
+    try {
+      const session = completedSession();
+      const ok = saveActiveSession(session);
+      expect(ok).toBe(false);
+      expect(isStorageAvailable()).toBe(false);
+      expect(loadActiveSession(session.updatedAtMs + 1000)?.evaluationId).toBe(
+        session.evaluationId,
+      );
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(window, "localStorage", originalDescriptor);
+      }
+    }
 
     // Corrupt stats store handled gracefully
-    vi.restoreAllMocks();
     window.localStorage.setItem(ANONYMOUS_STATS_KEY, "[]");
     expect(getAllAnonymousStats()).toEqual([]);
   });
